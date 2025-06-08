@@ -5,14 +5,45 @@ export async function POST(request: Request) {
   try {
     const { order } = await request.json();
     
-    // Gmail-only transporter
+    // Debug: Check if environment variables are available
+    console.log('Environment check:', {
+      hasUser: !!process.env.SMTP_USER,
+      hasPass: !!process.env.SMTP_PASS,
+      userPreview: process.env.SMTP_USER ? `${process.env.SMTP_USER.substring(0, 3)}***` : 'NOT SET',
+      isProduction: process.env.NODE_ENV === 'production'
+    });
+    
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      throw new Error('Gmail credentials not configured. Please check SMTP_USER and SMTP_PASS environment variables.');
+    }
+    
+    // Production-ready Gmail transporter with better security
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
+      // Additional security options for production
+      secure: true,
+      tls: {
+        rejectUnauthorized: false,
+        ciphers: 'SSLv3'
+      },
+      // Connection timeout settings
+      connectionTimeout: 60000,
+      greetingTimeout: 30000,
+      socketTimeout: 60000,
     });
+    
+    // Verify connection before sending
+    try {
+      await transporter.verify();
+      console.log('✅ Gmail connection verified successfully');
+    } catch (verifyError) {
+      console.error('❌ Gmail verification failed:', verifyError);
+      throw new Error(`Gmail authentication failed: ${verifyError.message}`);
+    }
     
     const isApproved = order.payment.status === 'approved';
     
@@ -78,6 +109,7 @@ export async function POST(request: Request) {
             justify-content: space-between;
             align-items: center;
             margin-bottom: 16px;
+            flex-wrap: wrap;
           }
           .order-title {
             font-size: 18px;
@@ -142,7 +174,6 @@ export async function POST(request: Request) {
             font-weight: 600;
             text-align: center;
             margin: 24px 0;
-            transition: transform 0.2s;
           }
           .next-steps {
             background: #e6fffa;
@@ -170,6 +201,11 @@ export async function POST(request: Request) {
           }
           .footer strong {
             color: #2d3748;
+          }
+          @media (max-width: 600px) {
+            .container { margin: 20px; }
+            .content { padding: 30px 20px; }
+            .order-header { flex-direction: column; align-items: flex-start; gap: 8px; }
           }
         </style>
       </head>
@@ -264,58 +300,13 @@ export async function POST(request: Request) {
             text-align: center; 
             padding: 40px 30px;
           }
-          .header h1 { 
-            font-size: 32px; 
-            font-weight: 700; 
-            margin-bottom: 8px;
-          }
-          .header p { 
-            font-size: 18px; 
-            opacity: 0.9;
-          }
-          .content { 
-            padding: 40px 30px;
-          }
-          .greeting {
-            font-size: 18px;
-            margin-bottom: 24px;
-            color: #2d3748;
-          }
+          .content { padding: 40px 30px; }
           .error-card { 
             background: #fed7d7; 
             border-radius: 12px; 
             padding: 24px; 
             margin: 24px 0;
             border-left: 4px solid #f56565;
-          }
-          .error-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #2d3748;
-            margin-bottom: 16px;
-          }
-          .product-info {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 16px 0;
-          }
-          .retry-steps {
-            background: #e6fffa;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 24px 0;
-          }
-          .retry-steps h3 {
-            color: #2d3748;
-            margin-bottom: 12px;
-          }
-          .retry-steps ul {
-            margin-left: 20px;
-            color: #4a5568;
-          }
-          .retry-steps li {
-            margin-bottom: 8px;
           }
           .cta-button {
             display: inline-block;
@@ -335,9 +326,6 @@ export async function POST(request: Request) {
             color: #718096;
             font-size: 14px;
           }
-          .footer strong {
-            color: #2d3748;
-          }
         </style>
       </head>
       <body>
@@ -348,29 +336,13 @@ export async function POST(request: Request) {
           </div>
           
           <div class="content">
-            <div class="greeting">
-              Hi <strong>${order.customer.fullName}</strong>,
-            </div>
-            <p>We're sorry, but we couldn't process your payment for this order. Don't worry - this happens sometimes and can usually be fixed easily!</p>
+            <p>Hi <strong>${order.customer.fullName}</strong>,</p>
+            <p>We couldn't process your payment for order #${order.orderNumber}.</p>
             
             <div class="error-card">
-              <div class="error-title">Order #${order.orderNumber}</div>
-              
-              <div class="product-info">
-                <strong>Product:</strong> ${order.product.name}<br>
-                <strong>Total:</strong> $${order.total.toFixed(2)}<br>
-                <strong>Issue:</strong> ${order.payment.status === 'declined' ? 'Card was declined by your bank' : 'Payment gateway error occurred'}
-              </div>
-            </div>
-            
-            <div class="retry-steps">
-              <h3>🔧 How to fix this:</h3>
-              <ul>
-                <li><strong>Try a different card</strong> - Use another payment method</li>
-                <li><strong>Check your details</strong> - Verify card number, expiry, and CVV</li>
-                <li><strong>Contact your bank</strong> - They may have blocked the transaction</li>
-                <li><strong>Try again</strong> - Sometimes it's just a temporary issue</li>
-              </ul>
+              <strong>Product:</strong> ${order.product.name}<br>
+              <strong>Total:</strong> $${order.total.toFixed(2)}<br>
+              <strong>Issue:</strong> ${order.payment.status === 'declined' ? 'Card was declined' : 'Payment gateway error'}
             </div>
             
             <center>
@@ -378,15 +350,10 @@ export async function POST(request: Request) {
                 Try Again →
               </a>
             </center>
-            
-            <p style="text-align: center; color: #718096; font-style: italic; margin-top: 24px;">
-              Your shoes are still waiting for you! ✨
-            </p>
           </div>
           
           <div class="footer">
             <p><strong>ShoeStore</strong> - Step into Style</p>
-            <p>© 2024 ShoeStore. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -398,23 +365,47 @@ export async function POST(request: Request) {
       to: order.customer.email,
       subject,
       html,
+      // Additional headers for better delivery
+      headers: {
+        'X-Priority': '1',
+        'X-MSMail-Priority': 'High',
+        'Importance': 'high'
+      }
     };
     
-    await transporter.sendMail(mailOptions);
+    const info = await transporter.sendMail(mailOptions);
     
     console.log(`✅ Email sent successfully to ${order.customer.email} via Gmail`);
+    console.log(`📧 Message ID: ${info.messageId}`);
     
     return NextResponse.json({ 
       success: true, 
-      message: 'Email sent successfully via Gmail'
+      message: 'Email sent successfully via Gmail',
+      messageId: info.messageId,
+      environment: process.env.NODE_ENV
     });
     
   } catch (error) {
     console.error('❌ Gmail sending error:', error);
+    
+    // More detailed error logging for production debugging
+    const errorDetails = {
+      message: error.message,
+      code: error.code,
+      command: error.command,
+      response: error.response,
+      hasUser: !!process.env.SMTP_USER,
+      hasPass: !!process.env.SMTP_PASS,
+      environment: process.env.NODE_ENV
+    };
+    
+    console.error('📊 Error details:', errorDetails);
+    
     return NextResponse.json(
       { 
         error: 'Failed to send email via Gmail', 
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error.message,
+        errorCode: error.code || 'UNKNOWN'
       },
       { status: 500 }
     );
