@@ -42,7 +42,8 @@ export async function POST(request: Request) {
       console.log('✅ Gmail connection verified successfully');
     } catch (verifyError) {
       console.error('❌ Gmail verification failed:', verifyError);
-      throw new Error(`Gmail authentication failed: ${verifyError.message}`);
+      const errorMessage = verifyError instanceof Error ? verifyError.message : 'Unknown verification error';
+      throw new Error(`Gmail authentication failed: ${errorMessage}`);
     }
     
     const isApproved = order.payment.status === 'approved';
@@ -389,11 +390,16 @@ export async function POST(request: Request) {
     console.error('❌ Gmail sending error:', error);
     
     // More detailed error logging for production debugging
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorCode = error instanceof Error && 'code' in error ? (error as any).code : undefined;
+    const errorCommand = error instanceof Error && 'command' in error ? (error as any).command : undefined;
+    const errorResponse = error instanceof Error && 'response' in error ? (error as any).response : undefined;
+    
     const errorDetails = {
-      message: error.message,
-      code: error.code,
-      command: error.command,
-      response: error.response,
+      message: errorMessage,
+      code: errorCode,
+      command: errorCommand,
+      response: errorResponse,
       hasUser: !!process.env.SMTP_USER,
       hasPass: !!process.env.SMTP_PASS,
       environment: process.env.NODE_ENV
@@ -404,8 +410,8 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { 
         error: 'Failed to send email via Gmail', 
-        details: error.message,
-        errorCode: error.code || 'UNKNOWN'
+        details: errorMessage,
+        errorCode: errorCode || 'UNKNOWN'
       },
       { status: 500 }
     );
